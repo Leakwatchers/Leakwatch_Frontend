@@ -1,40 +1,62 @@
 import React, { useEffect, useState } from "react";
-import SensorListWidget from "../widgets/SensorListWidget.jsx";
 import { api } from "../api";
+import SensorTable from "../components/SensorTable";
 
 export default function Dashboard() {
   const [role, setRole] = useState("");
 
   useEffect(() => {
-    // Decodifica o JWT para pegar role (se você preferir posso fazer backend retornar /me)
-    try {
-      const token = localStorage.getItem("jwt");
-      if (!token) return;
+    detectRole();
+  }, []);
 
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      setRole(payload.role ? payload.role.replace("ROLE_", "") : "");
+  async function detectRole() {
+    try {
+      await api.get("/users");
+      setRole("MASTER");
     } catch {
       setRole("VIEW");
     }
-  }, []);
+  }
+
+  function logout() {
+    localStorage.clear();
+    window.location.href = "/login";
+  }
 
   return (
-    <div>
-      <header className="topbar">
-        <h1>Dashboard</h1>
-        <div className="role-pill">{role || "—"}</div>
-      </header>
+    <div className="app-root">
 
-      <section className="grid">
-        {/* Lista de sensores igual à antiga */}
-        <SensorListWidget />
+      {/* SIDEBAR */}
+      <aside className="sidebar">
+        <div className="side-brand">LeakWatcher</div>
 
-        {/* Card de Relatórios */}
-        <div className="card">
-          <h3>Relatórios</h3>
-          <p>Visualize relatórios gerados pelo sistema.</p>
+        <nav>
+          <a href="/">Dashboard</a>
+
+          {role === "MASTER" && (
+            <a href="/users">Gerenciar Usuários</a>
+          )}
+
+          <a href="/results">Resultados</a>
+
+          <a onClick={logout} style={{cursor:"pointer"}}>Sair</a>
+        </nav>
+
+        <div className="side-footer">
+          <div className="role-pill">{role}</div>
         </div>
-      </section>
+      </aside>
+
+      {/* ÁREA PRINCIPAL */}
+      <main className="main-area">
+        <div className="topbar">
+          <h1>Dashboard</h1>
+          <div className="role-pill">{role}</div>
+        </div>
+
+        <SensorTable role={role} />
+      </main>
+
     </div>
   );
 }
