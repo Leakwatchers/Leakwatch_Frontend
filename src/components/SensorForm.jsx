@@ -2,9 +2,9 @@ import React, { useState } from "react";
 import { api } from "../api";
 
 export default function SensorForm({ initial, onSaved, onCancel }) {
-  const isNew = !initial || !initial.macAddress;
+  const isNew = !initial || !initial.ipAdress;
 
-  const [mac, setMac] = useState(initial?.macAddress || "");
+  const [ipAdress, setipAdress] = useState(initial?.ipAdress || "");
   const [name, setName] = useState(initial?.sensorName || "");
   const [type, setType] = useState(initial?.sensorType || "");
   const [loading, setLoading] = useState(false);
@@ -14,7 +14,7 @@ export default function SensorForm({ initial, onSaved, onCancel }) {
     setLoading(true);
 
     const payload = {
-      macAddress: mac,
+      ipAdress: ipAdress,
       sensorName: name,
       sensorType: type
     };
@@ -23,7 +23,7 @@ export default function SensorForm({ initial, onSaved, onCancel }) {
       if (isNew) {
         await api.post("/sensors", payload);
       } else {
-        await api.put(`/sensors/${mac}`, payload);
+        await api.put(`/sensors/${ipAdress}`, payload);
       }
 
       onSaved && onSaved();
@@ -42,9 +42,9 @@ export default function SensorForm({ initial, onSaved, onCancel }) {
 
         <form className="form" onSubmit={submit}>
           <input
-            value={mac}
-            onChange={(e) => setMac(e.target.value)}
-            placeholder="MAC Address"
+            value={ipAdress}
+            onChange={(e) => setipAdress(e.target.value)}
+            placeholder="Endereço IP"
             required
             disabled={!isNew}
           />
