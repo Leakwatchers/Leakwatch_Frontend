@@ -55,6 +55,7 @@ export default function Users() {
              style={{ cursor: "pointer" }}>
             Sair
           </a>
+          
         </nav>
 
         <div className="side-footer">
@@ -66,14 +67,6 @@ export default function Users() {
         <div className="topbar">
           <h1>Gerenciar Usuários</h1>
         </div>
-
-        <button
-          className="btn"
-          style={{ marginBottom: "20px" }}
-          onClick={() => (window.location.href = "/")}
-        >
-          ← Voltar
-        </button>
 
         <div style={{
           width: "100%",

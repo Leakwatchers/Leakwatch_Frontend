@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { api } from "../api";
 import SensorTable from "../components/SensorTable";
 
-export default function Dashboard() {
+export default function Sensores() {
   const [role, setRole] = useState("");
 
   useEffect(() => {
@@ -31,7 +31,7 @@ export default function Dashboard() {
         <div className="side-brand">LeakWatcher</div>
 
         <nav>
-          <a href="/">Dashboard</a>
+          <a href="/">Sensores</a>
 
           {role === "MASTER" && (
             <a href="/users">Gerenciar Usuários</a>
@@ -50,7 +50,7 @@ export default function Dashboard() {
       {/* ÁREA PRINCIPAL */}
       <main className="main-area">
         <div className="topbar">
-          <h1>Dashboard</h1>
+          <h1></h1>
           <div className="role-pill">{role}</div>
         </div>
 
