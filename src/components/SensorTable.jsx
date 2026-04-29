@@ -24,19 +24,19 @@ export default function SensorTable({ role }) {
     }
   }
 
-  async function removeSensor(ipAdress) {
+  async function removeSensor(id) {
     if (!confirm("Remover sensor?")) return;
     try {
-      await api.delete(`/sensors/${ipAdress}`);
+      await api.delete(`/sensors/${id}`);
       load();
     } catch {
       alert("Erro ao remover");
     }
   }
 
-  async function pingSensor(ipAdress) {
+  async function pingSensor(id) {
     try {
-      await api.post(`/sensors/${ipAdress}/ping`);
+      await api.post(`/sensors/${id}/ping`);
       setTimeout(() => load(), 2000);
     } catch {
       alert("Falha ao enviar PING");
@@ -60,17 +60,17 @@ export default function SensorTable({ role }) {
         <table className="table sensors-table">
           <thead>
             <tr>
-              <th style={{ width: "170px" }}>IP</th>
-              <th style={{ width: "150px" }}>Nome</th>
-              <th style={{ width: "80px" }}>Tipo</th>
-              <th style={{ width: "110px" }}>Conectado</th>
-              <th style={{ width: "200px" }}>Ações</th>
+              <th>IP</th>
+              <th>Nome</th>
+              <th>Tipo</th>
+              <th>Conectado</th>
+              <th>Ações</th>
             </tr>
           </thead>
 
           <tbody>
             {sensors.map((s) => (
-              <tr key={s.ipAdress}>
+              <tr key={s.id}>
                 <td>{s.ipAdress}</td>
                 <td>{s.sensorName}</td>
                 <td>{s.sensorType}</td>
@@ -83,7 +83,10 @@ export default function SensorTable({ role }) {
                 </td>
 
                 <td>
-                  <button className="btn small" onClick={() => pingSensor(s.ipAdress)}>
+                  <button
+                    className="btn small"
+                    onClick={() => pingSensor(s.id)}
+                  >
                     PING
                   </button>
 
@@ -99,7 +102,7 @@ export default function SensorTable({ role }) {
 
                       <button
                         className="btn small danger"
-                        onClick={() => removeSensor(s.ipAdress)}
+                        onClick={() => removeSensor(s.id)}
                         style={{ marginLeft: "5px" }}
                       >
                         Excluir

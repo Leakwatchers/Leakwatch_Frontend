@@ -5,11 +5,11 @@ export default function Users() {
   const [users, setUsers] = useState([]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [telefone, setTelefone] = useState(""); // <-- ADICIONADO
   const [role, setRole] = useState("VIEW");
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  // Carregar lista
   async function loadUsers() {
     const r = await api.get("/users");
     setUsers(r.data);
@@ -19,15 +19,15 @@ export default function Users() {
     loadUsers();
   }, []);
 
-  // Criar usuário
   async function createUser(e) {
     e.preventDefault();
     try {
-      await api.post("/users", { username, password, role });
+      await api.post("/users", { username, password, role, telefone }); 
       setSuccess("Usuário criado com sucesso!");
       setError(null);
       setUsername("");
       setPassword("");
+      setTelefone(""); 
       setRole("VIEW");
       loadUsers();
     } catch {
@@ -36,7 +36,6 @@ export default function Users() {
     }
   }
 
-  // Excluir
   async function removeUser(id) {
     if (!confirm("Deseja remover este usuário?")) return;
     await api.delete(`/users/${id}`);
@@ -46,7 +45,6 @@ export default function Users() {
   return (
     <div className="app-root">
 
-      {/* SIDEBAR */}
       <aside className="sidebar">
         <div className="side-brand">LeakWatcher</div>
 
@@ -64,13 +62,11 @@ export default function Users() {
         </div>
       </aside>
 
-      {/* ÁREA PRINCIPAL */}
       <main className="main-area">
         <div className="topbar">
           <h1>Gerenciar Usuários</h1>
         </div>
 
-        {/* BOTÃO VOLTAR */}
         <button
           className="btn"
           style={{ marginBottom: "20px" }}
@@ -79,7 +75,6 @@ export default function Users() {
           ← Voltar
         </button>
 
-        {/* CARD CENTRALIZADO */}
         <div style={{
           width: "100%",
           display: "flex",
@@ -107,6 +102,15 @@ export default function Users() {
                 required
               />
 
+              {/* TELEFONE */}
+              <input
+                className="input"
+                placeholder="Telefone"
+                value={telefone}
+                onChange={(e) => setTelefone(e.target.value)}
+                required
+              />
+
               <select
                 className="input"
                 value={role}
@@ -126,12 +130,12 @@ export default function Users() {
           </div>
         </div>
 
-        {/* TABELA */}
         <table className="table">
-          <thead>
+            <thead>
             <tr>
               <th>ID</th>
               <th>Usuário</th>
+              <th>Telefone</th>
               <th>Role</th>
               <th>Ações</th>
             </tr>
@@ -142,6 +146,7 @@ export default function Users() {
               <tr key={u.id}>
                 <td>{u.id}</td>
                 <td>{u.username}</td>
+                <td>{u.telefone}</td> {/* ALTERADO */}
                 <td>{u.role.replace("ROLE_", "")}</td>
                 <td>
                   <button className="btn danger" onClick={() => removeUser(u.id)}>

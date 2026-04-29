@@ -6,6 +6,6 @@ export const api = axios.create({
 
 api.interceptors.request.use((cfg) => {
   const token = localStorage.getItem("jwt");
-  if (token) cfg.headers.Authorization = `Bearer ${token}`;
+    if (token) cfg.headers.Authorization = `Bearer ${token}`;
   return cfg;
 });

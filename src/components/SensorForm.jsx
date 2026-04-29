@@ -2,8 +2,9 @@ import React, { useState } from "react";
 import { api } from "../api";
 
 export default function SensorForm({ initial, onSaved, onCancel }) {
-  const isNew = !initial || !initial.ipAdress;
+  const isNew = !initial || !initial.id;
 
+  const [id] = useState(initial?.id || null);
   const [ipAdress, setipAdress] = useState(initial?.ipAdress || "");
   const [name, setName] = useState(initial?.sensorName || "");
   const [type, setType] = useState(initial?.sensorType || "");
@@ -23,7 +24,7 @@ export default function SensorForm({ initial, onSaved, onCancel }) {
       if (isNew) {
         await api.post("/sensors", payload);
       } else {
-        await api.put(`/sensors/${ipAdress}`, payload);
+        await api.put(`/sensors/${id}`, payload);
       }
 
       onSaved && onSaved();

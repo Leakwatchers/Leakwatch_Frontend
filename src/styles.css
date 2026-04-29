@@ -7,10 +7,28 @@
 --danger:#ef4444;
 }
 *{box-sizing:border-box}
-body{margin:0;height:100vh;background:linear-gradient(180deg,#071027 0%, #0f1720 100%);font-family:Inter,Segoe UI,Roboto,Arial;color:var(--text)}
+body{margin:0;height:100vh;background:linear-gradient(180deg,#0d369c 0%, #0f1720 100%);font-family:Inter,Segoe UI,Roboto,Arial;color:var(--text)}
 .app-root{display:flex;height:100vh}
 .sidebar{width:220px;background:linear-gradient(180deg,rgba(255,255,255,0.03),transparent);padding:20px;display:flex;flex-direction:column}
-.side-brand{font-weight:700;font-size:1.2rem;color:var(--accent);margin-bottom:20px}
+
+/* ALTERADO AQUI */
+.side-brand{
+  font-weight:700;
+  font-size:1.2rem;
+  color:var(--accent);
+  margin-bottom:20px;
+
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.side-brand::before{
+  content:"";
+  width:28px;
+  height:28px;
+  background:url("/src/assets/logoSn.png") no-repeat center/contain;
+}
+
 .sidebar nav a{display:block;color:var(--muted);text-decoration:none;padding:10px;border-radius:8px;margin-bottom:6px}
 .sidebar nav a:hover{background:rgba(255,255,255,0.02);color:var(--text)}
 .side-footer{margin-top:auto}
@@ -50,6 +68,10 @@ body{margin:0;height:100vh;background:linear-gradient(180deg,#071027 0%, #0f1720
   font-weight: 600;
 }
 
+.logo {
+  width: 360px;
+}
+
 .status.offline {
   background: #F44336;
   color: white;
@@ -60,7 +82,7 @@ body{margin:0;height:100vh;background:linear-gradient(180deg,#071027 0%, #0f1720
 
 /* BOTÕES PRIMÁRIOS */
 .btn.primary {
-  background: #1976D2; /* azul antigo */
+  background: #1976D2;
   color: white !important;
   border: none;
   padding: 10px 14px;

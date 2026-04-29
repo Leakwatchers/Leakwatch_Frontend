@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import { useNavigate } from "react-router-dom";
+import logo from "../assets/logo.png";
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -23,6 +24,7 @@ export default function Login() {
     <div className="center-page">
       <div className="card login-card">
         <form onSubmit={submit} className="form">
+            <img src={logo} alt="LeakWatcher" className="logo" />
           <h2>Entrar</h2>
           <input
             className="input"
