@@ -1,30 +1,38 @@
-import React from 'react'
-import SensorTable from '../components/SensorTable'
+import React from "react";
+import SensorTable from "../components/SensorTable";
+import Layout from "../components/Layout";
 
+export default function SensorsPage({ role }) {
 
-export default function SensorsPage({ role }){
-return (
-<div className="app-root">
-<aside className="sidebar">
-<div className="side-brand">LeakWatcher</div>
-<nav>
-<a href="/">Dashboard</a>
-<a href="/sensors">Sensores</a>
-</nav>
-</aside>
+  function logout() {
 
+    localStorage.clear();
 
-<main className="main-area">
-<header className="topbar">
-<h1>Sensores</h1>
-<div className="role-pill">{role}</div>
-</header>
+    window.location.href = "/login";
+  }
 
+  return (
+    <Layout
+      role={role}
+      onLogout={logout}
+    >
 
-<div className="content">
-<SensorTable role={role} />
-</div>
-</main>
-</div>
-)
+      <div className="topbar">
+
+        <h1>
+          Sensores
+        </h1>
+
+        <div className="role-pill">
+          {role}
+        </div>
+
+      </div>
+
+      <div className="content">
+        <SensorTable role={role} />
+      </div>
+
+    </Layout>
+  );
 }

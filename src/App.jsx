@@ -1,11 +1,11 @@
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
+import { useTheme } from "./hooks/useTheme";
 
 import Login from "./pages/login";
 import Dashboard from "./pages/dashboard";
 import Users from "./pages/Users";
 import Results from "./pages/Results";
-
 
 export default function App() {
   const token = localStorage.getItem("jwt");

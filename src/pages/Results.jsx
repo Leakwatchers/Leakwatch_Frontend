@@ -1,7 +1,6 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { api } from "../api";
 import "chartjs-adapter-date-fns";
-
 import { Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -14,8 +13,8 @@ import {
   Filler,
   TimeScale,
 } from "chart.js";
-
 import annotationPlugin from "chartjs-plugin-annotation";
+import Layout from "../components/Layout";
 
 ChartJS.register(
   LineElement,
@@ -28,8 +27,6 @@ ChartJS.register(
   Filler,
   annotationPlugin
 );
-
-// ─── status config ────────────────────────────────────────────────────────────
 
 const GAS_LEVELS = [
   { status: "OK",      min: 0,    max: 400,  color: "#4caf50", label: "OK (0–400 ppm)"          },
@@ -59,62 +56,30 @@ function statusBadge(status) {
   );
 }
 
-// ─── constants ────────────────────────────────────────────────────────────────
-
 const SENSOR_COLORS = [
   "#26c6da", "#ff6384", "#ffcd56",
   "#4bc0c0", "#9966ff", "#ff9f40",
 ];
 
-// Zone annotations for the chart (fixed thresholds)
 const ZONE_ANNOTATIONS = {
-  zoneOk: {
-    type: "box",
-    yMin: 0, yMax: 400,
-    backgroundColor: "rgba(76,175,80,0.05)",
-    borderWidth: 0,
-  },
-  zoneAlerta: {
-    type: "box",
-    yMin: 400, yMax: 1000,
-    backgroundColor: "rgba(255,205,86,0.05)",
-    borderWidth: 0,
-  },
-  zoneCritico: {
-    type: "box",
-    yMin: 1000, yMax: 2000,
-    backgroundColor: "rgba(255,159,64,0.07)",
-    borderWidth: 0,
-  },
-  zoneRisco: {
-    type: "box",
-    yMin: 2000,
-    backgroundColor: "rgba(255,68,68,0.08)",
-    borderWidth: 0,
-  },
-  lineAlerta: {
-    type: "line",
-    yMin: 400, yMax: 400,
-    borderColor: "rgba(255,205,86,0.4)",
-    borderWidth: 1,
-    borderDash: [4, 4],
-    label: { content: "Alerta 400", display: true, position: "end", color: "#ffcd56", font: { size: 10 } },
+  zoneOk:      { type: "box", yMin: 0,    yMax: 400,  backgroundColor: "rgba(76,175,80,0.05)",   borderWidth: 0 },
+  zoneAlerta:  { type: "box", yMin: 400,  yMax: 1000, backgroundColor: "rgba(255,205,86,0.05)",  borderWidth: 0 },
+  zoneCritico: { type: "box", yMin: 1000, yMax: 2000, backgroundColor: "rgba(255,159,64,0.07)",  borderWidth: 0 },
+  zoneRisco:   { type: "box", yMin: 2000,             backgroundColor: "rgba(255,68,68,0.08)",   borderWidth: 0 },
+  lineAlerta:  {
+    type: "line", yMin: 400,  yMax: 400,
+    borderColor: "rgba(255,205,86,0.4)", borderWidth: 1, borderDash: [4, 4],
+    label: { content: "Alerta 400",   display: true, position: "end", color: "#ffcd56", font: { size: 10 } },
   },
   lineCritico: {
-    type: "line",
-    yMin: 1000, yMax: 1000,
-    borderColor: "rgba(255,159,64,0.4)",
-    borderWidth: 1,
-    borderDash: [4, 4],
+    type: "line", yMin: 1000, yMax: 1000,
+    borderColor: "rgba(255,159,64,0.4)", borderWidth: 1, borderDash: [4, 4],
     label: { content: "Crítico 1000", display: true, position: "end", color: "#ff9f40", font: { size: 10 } },
   },
   lineRisco: {
-    type: "line",
-    yMin: 2000, yMax: 2000,
-    borderColor: "rgba(255,68,68,0.5)",
-    borderWidth: 1,
-    borderDash: [4, 4],
-    label: { content: "Risco 2000", display: true, position: "end", color: "#ff4444", font: { size: 10 } },
+    type: "line", yMin: 2000, yMax: 2000,
+    borderColor: "rgba(255,68,68,0.5)",  borderWidth: 1, borderDash: [4, 4],
+    label: { content: "Risco 2000",   display: true, position: "end", color: "#ff4444", font: { size: 10 } },
   },
 };
 
@@ -139,11 +104,6 @@ const chartOptions = {
   plugins: {
     legend: {
       labels: { color: "#cdd6e0", boxWidth: 14, padding: 16 },
-      onClick: (e, item, legend) => {
-        const meta = legend.chart.getDatasetMeta(item.datasetIndex);
-        meta.hidden = !meta.hidden;
-        legend.chart.update();
-      },
     },
     tooltip: {
       backgroundColor: "rgba(10,18,30,0.92)",
@@ -156,8 +116,6 @@ const chartOptions = {
     annotation: { annotations: ZONE_ANNOTATIONS },
   },
 };
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
 
 function getIntervalMinutes(start, end) {
   if (!start || !end) return 5;
@@ -172,81 +130,113 @@ function getIntervalMinutes(start, end) {
   return 480;
 }
 
-/**
- * Compute alert reports from raw reports (which already have `status` from the API).
- * Groups consecutive non-OK readings into events.
- */
-function computeAlertReports(rawReportsBySensor) {
+function computeEnhancedReports(rawReportsBySensor) {
   const alertEvents = [];
+  const hourlyDistribution = Array(24).fill(0);
+  const sensorStats = {};
+  const timeInStatus = { OK: 0, ANOMALY: 0 }; // ANOMALY = tudo >= 400 ppm
+  let totalReadings = 0;
 
   rawReportsBySensor.forEach(({ sensorName, reports }) => {
-    const sorted = [...reports].sort(
-      (a, b) => new Date(a.reportTime) - new Date(b.reportTime)
-    );
+    const sorted = [...reports].sort((a, b) => new Date(a.reportTime) - new Date(b.reportTime));
+    
+    if (!sensorStats[sensorName]) {
+      sensorStats[sensorName] = { 
+        maxPpm: 0, 
+        avgPpm: 0, 
+        countRisco: 0, 
+        countCritico: 0, 
+        countAlerta: 0,
+        countAnomalies: 0, // Tudo >= 400
+        totalPpm: 0,
+        readings: 0,
+        delays: [],
+      };
+    }
 
-    let eventStart  = null;
+    let eventStart = null;
     let eventStatus = null;
-    let peak        = 0;
+    let peak = 0;
 
     sorted.forEach((rep, idx) => {
-      const isAlert = rep.status !== "OK";
+      const isAnomalous = rep.gasLevel >= 400; // Tudo >= 400 é anomalia
+      const repTime = new Date(rep.reportTime);
+      const hour = repTime.getHours();
+      
+      // Stats per sensor
+      sensorStats[sensorName].readings++;
+      sensorStats[sensorName].totalPpm += rep.gasLevel;
+      if (rep.gasLevel > sensorStats[sensorName].maxPpm) sensorStats[sensorName].maxPpm = rep.gasLevel;
+      if (rep.status === "RISCO") sensorStats[sensorName].countRisco++;
+      if (rep.status === "CRITICO") sensorStats[sensorName].countCritico++;
+      if (rep.status === "ALERTA") sensorStats[sensorName].countAlerta++;
+      if (isAnomalous) sensorStats[sensorName].countAnomalies++;
 
-      if (isAlert && eventStart === null) {
-        eventStart  = new Date(rep.reportTime).getTime();
-        eventStatus = rep.status;
-        peak        = rep.gasLevel;
-      } else if (isAlert && eventStart !== null) {
-        if (rep.gasLevel > peak) peak = rep.gasLevel;
-        // escalate status if worse
-        const levels = ["ALERTA", "CRITICO", "RISCO"];
-        if (levels.indexOf(rep.status) > levels.indexOf(eventStatus)) {
+      // Global status time (OK vs ANOMALY)
+      timeInStatus[isAnomalous ? "ANOMALY" : "OK"]++;
+      totalReadings++;
+
+      // Performance: delay between readings
+      if (idx > 0) {
+        const prevTime = new Date(sorted[idx-1].reportTime);
+        const delay = (repTime - prevTime) / 1000; // seconds
+        sensorStats[sensorName].delays.push(delay);
+      }
+
+      if (isAnomalous) {
+        hourlyDistribution[hour]++;
+        if (eventStart === null) {
+          eventStart = repTime.getTime();
           eventStatus = rep.status;
+          peak = rep.gasLevel;
+        } else {
+          if (rep.gasLevel > peak) peak = rep.gasLevel;
+          const levels = ["ALERTA", "CRITICO", "RISCO"];
+          if (levels.indexOf(rep.status) > levels.indexOf(eventStatus)) {
+            eventStatus = rep.status;
+          }
         }
-      } else if (!isAlert && eventStart !== null) {
+      } else if (eventStart !== null) {
         alertEvents.push({
           sensorName,
-          start:      eventStart,
-          end:        new Date(rep.reportTime).getTime(),
-          peak:       Math.round(peak * 100) / 100,
-          status:     eventStatus,
-          durationMs: new Date(rep.reportTime).getTime() - eventStart,
+          start: eventStart,
+          end: repTime.getTime(),
+          peak: Math.round(peak * 100) / 100,
+          status: eventStatus,
+          durationMs: repTime.getTime() - eventStart,
         });
         eventStart = null; peak = 0;
       }
 
-      // still in alert at last point
-      if (isAlert && idx === sorted.length - 1 && eventStart !== null) {
+      if (isAnomalous && idx === sorted.length - 1 && eventStart !== null) {
         alertEvents.push({
           sensorName,
-          start:      eventStart,
-          end:        new Date(rep.reportTime).getTime(),
-          peak:       Math.round(peak * 100) / 100,
-          status:     eventStatus,
-          durationMs: new Date(rep.reportTime).getTime() - eventStart,
+          start: eventStart,
+          end: repTime.getTime(),
+          peak: Math.round(peak * 100) / 100,
+          status: eventStatus,
+          durationMs: repTime.getTime() - eventStart,
         });
       }
     });
+
+    sensorStats[sensorName].avgPpm = sensorStats[sensorName].totalPpm / sensorStats[sensorName].readings;
   });
 
-  const freqMap = {};
-  alertEvents.forEach((e) => {
-    freqMap[e.sensorName] = (freqMap[e.sensorName] || 0) + 1;
-  });
-  const frequency = Object.entries(freqMap)
-    .map(([sensorName, count]) => ({ sensorName, count }))
-    .sort((a, b) => b.count - a.count);
+  // Ranking - ordenar por anomalias (400+), depois por pico máximo
+  const ranking = Object.entries(sensorStats).map(([name, stats]) => ({
+    sensorName: name,
+    ...stats
+  })).sort((a, b) => b.countAnomalies - a.countAnomalies || b.maxPpm - a.maxPpm);
 
-  const durMap = {};
-  alertEvents.forEach((e) => {
-    if (!durMap[e.sensorName]) durMap[e.sensorName] = [];
-    durMap[e.sensorName].push(e.durationMs);
-  });
-  const avgReturn = Object.entries(durMap).map(([sensorName, arr]) => ({
-    sensorName,
-    avgMs: arr.reduce((a, b) => a + b, 0) / arr.length,
-  }));
-
-  return { alertEvents, frequency, avgReturn };
+  return { 
+    alertEvents, 
+    ranking, 
+    hourlyDistribution, 
+    timeInStatus, 
+    totalReadings,
+    sensorStats 
+  };
 }
 
 function fmtDuration(ms) {
@@ -259,24 +249,96 @@ function fmtDate(ts) {
   return new Date(ts).toLocaleString("pt-BR");
 }
 
-// ─── component ────────────────────────────────────────────────────────────────
+// ============================================================
+// Componentes Auxiliares
+// ============================================================
+function CollapsibleSection({ title, count, children, defaultOpen = true, icon = "▼" }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div className="card" style={{ marginTop: 20 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: isOpen ? 12 : 0,
+          cursor: "pointer",
+          userSelect: "none",
+        }}
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 24,
+              height: 24,
+              borderRadius: 4,
+              background: "var(--input-bg)",
+              color: "var(--accent)",
+              fontSize: 14,
+              fontWeight: 600,
+              transition: "transform 0.3s ease",
+              transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)",
+            }}
+          >
+            {icon}
+          </span>
+          <h2 style={{ margin: 0, fontSize: "1rem", fontWeight: 600, color: "var(--text-dim)" }}>
+            {title}
+          </h2>
+        </div>
+        {count !== undefined && (
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>
+            {count}
+          </span>
+        )}
+      </div>
+
+      {isOpen && (
+        <div style={{ animation: "fadeIn 0.3s ease" }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KPICard({ label, value, subValue, color = "var(--accent)" }) {
+  return (
+    <div style={{
+      background: "var(--card)",
+      padding: "16px",
+      borderRadius: "12px",
+      border: "1px solid var(--card-border)",
+      flex: "1 1 180px",
+      minWidth: "150px",
+      boxShadow: "var(--shadow-card)"
+    }}>
+      <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "8px", textTransform: "uppercase" }}>{label}</div>
+      <div style={{ fontSize: "24px", fontWeight: "700", color: color }}>{value}</div>
+      {subValue && <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "4px" }}>{subValue}</div>}
+    </div>
+  );
+}
 
 export default function Results() {
-  const [sensors, setSensors]         = useState([]);
-  const [selected, setSelected]       = useState([]);
-  const [chartData, setChartData]     = useState(null);
-  const [alertReports, setAlertReports] = useState(null);
-  const [loading, setLoading]         = useState(false);
-  const [error, setError]             = useState(null);
-  const [role, setRole]               = useState("");
-
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate]     = useState("");
+  const [sensors, setSensors]           = useState([]);
+  const [selected, setSelected]         = useState([]);
+  const [chartData, setChartData]       = useState(null);
+  const [enhancedData, setEnhancedData] = useState(null);
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState(null);
+  const [role, setRole]                 = useState("");
+  const [startDate, setStartDate]       = useState("");
+  const [endDate, setEndDate]           = useState("");
 
   const baseDatasetsRef    = useRef([]);
   const rawReportsBySensor = useRef([]);
 
-  // ── detect role ──────────────────────────────────────────────────────────
   useEffect(() => {
     api.get("/users")
       .then(() => setRole("MASTER"))
@@ -288,14 +350,12 @@ export default function Results() {
     window.location.href = "/login";
   }
 
-  // ── load sensors ─────────────────────────────────────────────────────────
   useEffect(() => {
     api.get("/sensors")
       .then((r) => setSensors(r.data))
       .catch(() => setError("Não foi possível carregar os sensores."));
   }, []);
 
-  // ── toggle sensor ────────────────────────────────────────────────────────
   const toggleSensor = useCallback((sensor) => {
     setSelected((prev) => {
       const exists = prev.some((s) => s.id === sensor.id);
@@ -303,11 +363,10 @@ export default function Results() {
     });
   }, []);
 
-  // ── fetch reports ────────────────────────────────────────────────────────
   useEffect(() => {
     if (selected.length === 0) {
       setChartData(null);
-      setAlertReports(null);
+      setEnhancedData(null);
       baseDatasetsRef.current    = [];
       rawReportsBySensor.current = [];
       return;
@@ -320,8 +379,8 @@ export default function Results() {
       setError(null);
 
       try {
-        const interval  = getIntervalMinutes(startDate, endDate);
-        const datasets  = [];
+        const interval    = getIntervalMinutes(startDate, endDate);
+        const datasets    = [];
         const rawBySensor = [];
 
         for (let i = 0; i < selected.length; i++) {
@@ -335,17 +394,13 @@ export default function Results() {
           );
 
           reports.sort((a, b) => new Date(a.reportTime) - new Date(b.reportTime));
-
           rawBySensor.push({ sensorName: sensor.sensorName, reports });
 
-          // group into time buckets and average
           const grouped = {};
           reports.forEach((rep) => {
             const dt      = new Date(rep.reportTime);
             const rounded = new Date(dt);
-            rounded.setMinutes(
-              Math.floor(dt.getMinutes() / interval) * interval, 0, 0
-            );
+            rounded.setMinutes(Math.floor(dt.getMinutes() / interval) * interval, 0, 0);
             const key = rounded.getTime();
             if (!grouped[key]) grouped[key] = [];
             grouped[key].push(rep.gasLevel);
@@ -358,30 +413,30 @@ export default function Results() {
 
           const color = SENSOR_COLORS[i % SENSOR_COLORS.length];
           datasets.push({
-            label:           sensor.sensorName,
-            data:            values,
-            borderColor:     color,
-            backgroundColor: color + "22",
-            tension:         0.4,
-            fill:            true,
-            pointRadius:     3,
+            label:            sensor.sensorName,
+            data:             values,
+            borderColor:      color,
+            backgroundColor:  color + "22",
+            tension:          0.4,
+            fill:             true,
+            pointRadius:      3,
             pointHoverRadius: 6,
           });
         }
 
         if (cancelled) return;
 
-        baseDatasetsRef.current    = datasets;
+        baseDatasetsRef.current = datasets;
         rawReportsBySensor.current = rawBySensor;
 
         setChartData({ datasets });
-        setAlertReports(computeAlertReports(rawBySensor));
+        setEnhancedData(computeEnhancedReports(rawBySensor));
       } catch (e) {
         if (!cancelled) {
           console.error(e);
           setError("Erro ao carregar os dados. Tente novamente.");
           setChartData(null);
-          setAlertReports(null);
+          setEnhancedData(null);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -390,300 +445,277 @@ export default function Results() {
 
     fetchReports();
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, startDate, endDate]);
 
-  // ── export CSV ───────────────────────────────────────────────────────────
+  const offlineSensors = useMemo(() => {
+    return sensors.filter(s => {
+      if (!s.lastSeen) return true;
+      const lastSeen = new Date(s.lastSeen);
+      const diffMinutes = (new Date() - lastSeen) / 60000;
+      return diffMinutes > 10; // Consider offline if no data for 10 min
+    });
+  }, [sensors]);
+
   function exportCsv() {
     const base = baseDatasetsRef.current;
     if (base.length === 0) return;
-
-    const allTimestamps = [
-      ...new Set(base.flatMap((ds) => ds.data.map((p) => p.x))),
-    ].sort((a, b) => a - b);
-
+    const allTimestamps = [...new Set(base.flatMap((ds) => ds.data.map((p) => p.x)))].sort((a, b) => a - b);
     const header = ["Horario", ...base.map((ds) => ds.label)].join(";");
-    const rows   = allTimestamps.map((ts) => {
-      const date   = new Date(ts).toLocaleString("pt-BR");
+    const rows = allTimestamps.map((ts) => {
+      const date = new Date(ts).toLocaleString("pt-BR");
       const values = base.map((ds) => {
         const point = ds.data.find((p) => p.x === ts);
         return point ? point.y.toFixed(2) : "";
       });
       return [date, ...values].join(";");
     });
-
-    const csv  = [header, ...rows].join("\n");
+    const csv = [header, ...rows].join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = `leakwatch_${new Date().toISOString().slice(0, 16).replace("T", "_")}.csv`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `leakwatch_report.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  // ── render ───────────────────────────────────────────────────────────────
   return (
-    <div className="app-root">
+    <Layout role={role} onLogout={logout}>
+      <div className="topbar">
+        <h1>Dashboard de Resultados</h1>
+        <div className="role-pill">{role}</div>
+      </div>
 
-      {/* SIDEBAR */}
-      <aside className="sidebar">
-        <div className="side-brand">LeakWatcher</div>
-        <nav>
-          <a href="/">Sensores</a>
-          {role === "MASTER" && <a href="/users">Gerenciar Usuários</a>}
-          <a href="/results">Resultados</a>
-          <a onClick={logout} style={{ cursor: "pointer" }}>Sair</a>
-        </nav>
-        <div className="side-footer">
-          <div className="role-pill">{role}</div>
+      {/* KPI DASHBOARD */}
+      {enhancedData && (
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
+          <KPICard 
+            label="Total de Anomalias (≥400 ppm)" 
+            value={enhancedData.alertEvents.length} 
+            subValue="Períodos detectados"
+            color={enhancedData.alertEvents.length > 0 ? "var(--danger)" : "var(--success)"}
+          />
+          <KPICard 
+            label="Sensores Offline" 
+            value={offlineSensors.length} 
+            subValue="Ação requerida"
+            color={offlineSensors.length > 0 ? "var(--danger)" : "var(--success)"}
+          />
+          <KPICard 
+            label="Pico Máximo" 
+            value={`${Math.max(...enhancedData.ranking.map(s => s.maxPpm)).toFixed(0)} ppm`} 
+            subValue="Maior leitura registrada"
+            color="var(--danger)"
+          />
+          <KPICard 
+            label="% Tempo em Anomalia" 
+            value={`${((enhancedData.timeInStatus.ANOMALY / enhancedData.totalReadings) * 100 || 0).toFixed(1)}%`} 
+            subValue="Divergente de OK"
+            color="var(--critical)"
+          />
         </div>
-      </aside>
+      )}
 
-      {/* ÁREA PRINCIPAL */}
-      <main className="main-area">
-        <div className="topbar">
-          <h1>Resultados</h1>
-          <div className="role-pill">{role}</div>
-        </div>
-
-        {/* LEGENDA DE NÍVEIS */}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-          {GAS_LEVELS.map((l) => (
-            <span key={l.status} style={{
-              background: l.color + "18",
-              color: l.color,
-              border: `1px solid ${l.color}44`,
-              borderRadius: 6,
-              padding: "3px 10px",
-              fontSize: 12,
-              fontWeight: 500,
-            }}>
-              {l.label}
-            </span>
-          ))}
-        </div>
-
-        {/* FILTROS */}
-        <div className="card" style={{ marginBottom: 15, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#8899aa" }}>
-            Início
-            <input
-              type="datetime-local"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </label>
-
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#8899aa" }}>
-            Fim
-            <input
-              type="datetime-local"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </label>
-
+      {/* FILTROS E SENSORES */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 15, marginBottom: 20 }}>
+        <div className="card">
+          <h2>Filtros de Período</h2>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--muted)" }}>
+              Início <input type="datetime-local" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--muted)" }}>
+              Fim <input type="datetime-local" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </label>
+          </div>
           {(startDate || endDate) && (
-            <button
-              className="btn"
-              style={{ marginTop: 16, alignSelf: "flex-end" }}
-              onClick={() => { setStartDate(""); setEndDate(""); }}
-            >
-              Limpar filtros
-            </button>
+            <button className="btn small" style={{ marginTop: 10 }} onClick={() => { setStartDate(""); setEndDate(""); }}>Limpar</button>
           )}
         </div>
 
-        {/* SENSORES */}
-        <div className="card" style={{ marginBottom: 20 }}>
-          <h2 style={{ marginBottom: 12 }}>Sensores</h2>
-          {sensors.length === 0 ? (
-            <p style={{ color: "#8899aa", fontSize: 14 }}>Nenhum sensor encontrado.</p>
-          ) : (
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {sensors.map((s, i) => {
-                const active = selected.some((sel) => sel.id === s.id);
-                const color  = SENSOR_COLORS[i % SENSOR_COLORS.length];
+        <div className="card">
+          <h2>Sensores</h2>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {sensors.map((s, i) => {
+              const active = selected.some((sel) => sel.id === s.id);
+              const color = SENSOR_COLORS[i % SENSOR_COLORS.length];
+              return (
+                <button key={s.id} className="btn small" onClick={() => toggleSensor(s)}
+                  style={{ opacity: active ? 1 : 0.4, border: `1px solid ${active ? color : "transparent"}` }}>
+                  {s.sensorName}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* GRÁFICO PRINCIPAL */}
+      <div className="card" style={{ minHeight: 300, marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <span style={{ fontWeight: 600 }}>Monitoramento em Tempo Real</span>
+          <button className="btn small ghost" onClick={exportCsv} disabled={!chartData}>↓ CSV</button>
+        </div>
+        {loading ? <p>Carregando...</p> : error ? <p style={{color:"red"}}>{error}</p> : !chartData ? <p>Selecione um sensor.</p> : <Line data={chartData} options={chartOptions} />}
+      </div>
+
+      {/* NOVOS RELATÓRIOS */}
+      {enhancedData && (
+        <>
+          {/* SENSORES OFFLINE */}
+          <CollapsibleSection title="Status de Conectividade (Sensores Offline)" icon="📡" defaultOpen={offlineSensors.length > 0}>
+            {offlineSensors.length === 0 ? (
+              <p style={{ color: "var(--success)", fontSize: 13 }}>Todos os sensores estão operando normalmente.</p>
+            ) : (
+              <table className="table">
+                <thead>
+                  <tr><th>Sensor</th><th>IP</th><th>Última Comunicação</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  {offlineSensors.map(s => (
+                    <tr key={s.id}>
+                      <td>{s.sensorName}</td>
+                      <td>{s.ipAdress}</td>
+                      <td>{s.lastSeen ? fmtDate(s.lastSeen) : "Nunca"}</td>
+                      <td><span className="status offline">OFFLINE</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CollapsibleSection>
+
+          {/* RANKING DE CRITICIDADE */}
+          <CollapsibleSection title="Ranking de Sensores Críticos" icon="🏆">
+            <table className="table">
+              <thead>
+                <tr><th>Sensor</th><th>Pico Máx</th><th>Média PPM</th><th>Anomalias (≥400)</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {enhancedData.ranking.map((s, i) => (
+                  <tr key={i}>
+                    <td>{s.sensorName}</td>
+                    <td style={{color:"var(--danger)", fontWeight:600}}>{s.maxPpm.toFixed(1)}</td>
+                    <td>{s.avgPpm.toFixed(1)}</td>
+                    <td style={{color:"var(--danger)", fontWeight:600}}>{s.countAnomalies}</td>
+                    <td>{s.countAnomalies > 5 ? statusBadge("RISCO") : s.countAnomalies > 0 ? statusBadge("ALERTA") : statusBadge("OK")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CollapsibleSection>
+
+          {/* HISTÓRICO DETALHADO POR NÍVEL */}
+          <CollapsibleSection title="Histórico Detalhado de Eventos" icon="📜" count={`${enhancedData.alertEvents.length} eventos`}>
+            <div style={{ display: "flex", gap: 10, marginBottom: 15 }}>
+              {["RISCO", "CRITICO", "ALERTA"].map(level => (
+                <div key={level} style={{ padding: "10px", borderRadius: "8px", background: "var(--input-bg)", flex: 1 }}>
+                  <div style={{ fontSize: "11px", color: "var(--muted)" }}>{level}</div>
+                  <div style={{ fontSize: "18px", fontWeight: "700" }}>{enhancedData.alertEvents.filter(e => e.status === level).length}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ maxHeight: "400px", overflowY: "auto" }}>
+              <table className="table">
+                <thead>
+                  <tr><th>Sensor</th><th>Início</th><th>Duração</th><th>Pico</th><th>Nível</th></tr>
+                </thead>
+                <tbody>
+                  {enhancedData.alertEvents.map((ev, i) => (
+                    <tr key={i}>
+                      <td>{ev.sensorName}</td>
+                      <td>{fmtDate(ev.start)}</td>
+                      <td>{fmtDuration(ev.durationMs)}</td>
+                      <td>{ev.peak}</td>
+                      <td>{statusBadge(ev.status)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CollapsibleSection>
+
+          {/* HEATMAP DE HORÁRIOS */}
+          <CollapsibleSection title="Análise de Horários de Risco (Heatmap)" icon="🔥">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 5, marginTop: 10 }}>
+              {enhancedData.hourlyDistribution.map((count, hr) => {
+                const opacity = Math.min(count / 10, 1);
                 return (
-                  <button
-                    key={s.id}
-                    className="btn primary"
-                    onClick={() => toggleSensor(s)}
-                    style={{
-                      opacity:     active ? 1 : 0.45,
-                      borderRadius: 10,
-                      padding:     "10px 20px",
-                      borderColor: active ? color : "transparent",
-                      boxShadow:   active ? `0 0 0 2px ${color}44` : "none",
-                      transition:  "opacity 0.2s, box-shadow 0.2s",
-                    }}
-                  >
-                    <span style={{
-                      display: "inline-block", width: 8, height: 8,
-                      borderRadius: "50%", background: color,
-                      marginRight: 7, verticalAlign: "middle",
-                    }} />
-                    {s.sensorName}
-                    <span style={{ opacity: 0.6, marginLeft: 6, fontSize: 12 }}>
-                      ({s.ipAdress})
-                    </span>
-                  </button>
+                  <div key={hr} style={{
+                    background: `rgba(255, 68, 68, ${0.1 + opacity * 0.9})`,
+                    padding: "10px 5px",
+                    borderRadius: "4px",
+                    textAlign: "center",
+                    border: count > 0 ? "1px solid var(--danger)" : "1px solid var(--card-border)"
+                  }}>
+                    <div style={{ fontSize: "10px", color: count > 5 ? "#fff" : "var(--muted)" }}>{hr}h</div>
+                    <div style={{ fontSize: "12px", fontWeight: "700", color: count > 5 ? "#fff" : "var(--text)" }}>{count}</div>
+                  </div>
                 );
               })}
             </div>
-          )}
-        </div>
+            <p style={{ fontSize: "11px", color: "var(--muted)", marginTop: "10px" }}>* Mostra a quantidade de leituras com anomalia (≥400 ppm) por hora do dia.</p>
+          </CollapsibleSection>
 
-        {/* GRÁFICO */}
-        <div className="card" style={{ minHeight: 260 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <span style={{ fontWeight: 600, color: "#cdd6e0" }}>Gráfico</span>
-            <button
-              className="btn"
-              onClick={exportCsv}
-              disabled={!chartData}
-              style={{ opacity: chartData ? 1 : 0.4, fontSize: 13, padding: "6px 14px" }}
-            >
-              ↓ Exportar CSV
-            </button>
-          </div>
-          {loading ? (
-            <p style={{ color: "#8899aa" }}>Carregando dados...</p>
-          ) : error ? (
-            <p style={{ color: "#ff6b6b" }}>{error}</p>
-          ) : !chartData ? (
-            <p style={{ color: "#8899aa" }}>Selecione ao menos um sensor para visualizar o gráfico.</p>
-          ) : (
-            <Line data={chartData} options={chartOptions} />
-          )}
-        </div>
-
-        {/* ── RELATÓRIOS DE ALERTA ── */}
-        {alertReports && (
-          <>
-            {/* 1. Histórico de alertas */}
-            <div className="card" style={{ marginTop: 20 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <h2 style={{ margin: 0 }}>Histórico de Alertas</h2>
-                <span style={{ fontSize: 12, color: "#8899aa" }}>
-                  {alertReports.alertEvents.length} evento(s)
-                </span>
-              </div>
-
-              {alertReports.alertEvents.length === 0 ? (
-                <p style={{ color: "#8899aa", fontSize: 14 }}>Nenhum alerta no período selecionado.</p>
-              ) : (
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)", color: "#8899aa", textAlign: "left" }}>
-                        <th style={{ padding: "8px 12px" }}>Sensor</th>
-                        <th style={{ padding: "8px 12px" }}>Início</th>
-                        <th style={{ padding: "8px 12px" }}>Fim</th>
-                        <th style={{ padding: "8px 12px" }}>Duração</th>
-                        <th style={{ padding: "8px 12px" }}>Pico (ppm)</th>
-                        <th style={{ padding: "8px 12px" }}>Nível</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {alertReports.alertEvents.map((ev, i) => (
-                        <tr key={i} style={{
-                          borderBottom: "1px solid rgba(255,255,255,0.04)",
-                          background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)",
-                        }}>
-                          <td style={{ padding: "8px 12px", color: "#cdd6e0", fontWeight: 500 }}>{ev.sensorName}</td>
-                          <td style={{ padding: "8px 12px", color: "#cdd6e0" }}>{fmtDate(ev.start)}</td>
-                          <td style={{ padding: "8px 12px", color: "#cdd6e0" }}>{fmtDate(ev.end)}</td>
-                          <td style={{ padding: "8px 12px" }}>
-                            <span style={{
-                              background: "rgba(255,100,100,0.15)", color: "#ff8888",
-                              borderRadius: 6, padding: "2px 8px", fontSize: 12,
-                            }}>
-                              {fmtDuration(ev.durationMs)}
-                            </span>
-                          </td>
-                          <td style={{ padding: "8px 12px", color: "#ff8888", fontWeight: 600 }}>{ev.peak}</td>
-                          <td style={{ padding: "8px 12px" }}>{statusBadge(ev.status)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+          {/* TEMPO EM CADA ESTADO */}
+          <CollapsibleSection title="Distribuição de Tempo por Estado" icon="📊">
+            <div style={{ display: "flex", height: "30px", borderRadius: "15px", overflow: "hidden", margin: "20px 0" }}>
+              {GAS_LEVELS.map(level => {
+                const pct = (enhancedData.timeInStatus[level.status] / enhancedData.totalReadings) * 100 || 0;
+                return (
+                  <div key={level.status} style={{ 
+                    width: `${pct}%`, 
+                    background: level.color, 
+                    height: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "10px",
+                    color: "#fff",
+                    minWidth: pct > 5 ? "auto" : "0"
+                  }}>
+                    {pct > 5 ? `${pct.toFixed(1)}%` : ""}
+                  </div>
+                );
+              })}
             </div>
-
-            {/* 2. Frequência por sensor */}
-            <div className="card" style={{ marginTop: 20 }}>
-              <h2 style={{ marginBottom: 16 }}>Frequência de Alertas por Sensor</h2>
-              {alertReports.frequency.length === 0 ? (
-                <p style={{ color: "#8899aa", fontSize: 14 }}>Nenhum alerta registrado.</p>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {alertReports.frequency.map((item, i) => {
-                    const max   = Math.max(...alertReports.frequency.map((f) => f.count));
-                    const pct   = (item.count / max) * 100;
-                    const color = SENSOR_COLORS[
-                      baseDatasetsRef.current.findIndex((d) => d.label === item.sensorName) % SENSOR_COLORS.length
-                    ] || "#26c6da";
-                    return (
-                      <div key={i}>
-                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 13 }}>
-                          <span style={{ color: "#cdd6e0" }}>{item.sensorName}</span>
-                          <span style={{ color: "#8899aa" }}>{item.count} alerta(s)</span>
-                        </div>
-                        <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 6, height: 10, overflow: "hidden" }}>
-                          <div style={{
-                            width: `${pct}%`, height: "100%",
-                            background: color, borderRadius: 6,
-                            transition: "width 0.4s ease",
-                          }} />
-                        </div>
-                      </div>
-                    );
-                  })}
+            <div style={{ display: "flex", justifyContent: "space-around" }}>
+              {GAS_LEVELS.map(level => (
+                <div key={level.status} style={{ textAlign: "center" }}>
+                  <div style={{ width: "12px", height: "12px", background: level.color, borderRadius: "50%", display: "inline-block", marginRight: "5px" }}></div>
+                  <span style={{ fontSize: "12px" }}>{level.status}</span>
                 </div>
-              )}
+              ))}
             </div>
+          </CollapsibleSection>
 
-            {/* 3. Tempo médio de retorno ao normal */}
-            <div className="card" style={{ marginTop: 20, marginBottom: 20 }}>
-              <h2 style={{ marginBottom: 16 }}>Tempo Médio de Retorno ao Normal</h2>
-              {alertReports.avgReturn.length === 0 ? (
-                <p style={{ color: "#8899aa", fontSize: 14 }}>Nenhum dado disponível.</p>
-              ) : (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-                  {alertReports.avgReturn.map((item, i) => {
-                    const color = SENSOR_COLORS[
-                      baseDatasetsRef.current.findIndex((d) => d.label === item.sensorName) % SENSOR_COLORS.length
-                    ] || "#26c6da";
-                    return (
-                      <div key={i} style={{
-                        background: "rgba(255,255,255,0.04)",
-                        border: `1px solid ${color}33`,
-                        borderRadius: 12,
-                        padding: "16px 24px",
-                        minWidth: 160,
-                        textAlign: "center",
-                      }}>
-                        <div style={{ fontSize: 11, color: "#8899aa", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>
-                          {item.sensorName}
-                        </div>
-                        <div style={{ fontSize: 28, fontWeight: 700, color }}>
-                          {fmtDuration(item.avgMs)}
-                        </div>
-                        <div style={{ fontSize: 11, color: "#8899aa", marginTop: 4 }}>
-                          média por evento
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+          {/* DESEMPENHO E CALIBRAÇÃO */}
+          <CollapsibleSection title="Diagnóstico de Desempenho do Sensor" icon="⚙️">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 15 }}>
+              {Object.entries(enhancedData.sensorStats).map(([name, stats]) => {
+                const avgDelay = stats.delays.reduce((a, b) => a + b, 0) / stats.delays.length || 0;
+                const status = avgDelay > 60 ? "Atrasado" : "Normal";
+                return (
+                  <div key={name} style={{ flex: 1, minWidth: "200px", padding: "15px", background: "var(--input-bg)", borderRadius: "10px" }}>
+                    <div style={{ fontWeight: "600", marginBottom: "10px" }}>{name}</div>
+                    <div style={{ fontSize: "12px", color: "var(--muted)" }}>Intervalo Médio: <b>{avgDelay.toFixed(1)}s</b></div>
+                    <div style={{ fontSize: "12px", color: "var(--muted)" }}>Status de Rede: <b style={{ color: status === "Normal" ? "var(--success)" : "var(--danger)" }}>{status}</b></div>
+                    <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "5px" }}>Falsos Alertas (&lt;30s): <b>{enhancedData.alertEvents.filter(e => e.sensorName === name && e.durationMs < 30000).length}</b></div>
+                  </div>
+                );
+              })}
             </div>
-          </>
-        )}
-      </main>
-    </div>
+          </CollapsibleSection>
+        </>
+      )}
+
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        .table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .table th, .table td { padding: 10px; border-bottom: 1px solid var(--card-border); text-align: left; }
+        .table th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+        .status.offline { background: rgba(255, 68, 68, 0.1); color: var(--danger); padding: 2px 8px; borderRadius: 4px; font-size: 11px; }
+      `}</style>
+    </Layout>
   );
 }
